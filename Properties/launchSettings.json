@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Shisho": {
+      "commandName": "Project",
+      "workingDirectory": "$(ProjectDir)/Environment"
+    }
+  }
+}
