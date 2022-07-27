@@ -13,11 +13,66 @@ namespace Shisho.Utility.Persistence.SqliteSupport;
 
 public class TypeMapping
 {
+    public static TypeMapping Get<T>() => Cache<T>.Mapping;
+
     public string Name { get; init; }
 
     public IReadOnlyList<IPropertyMapping> Properties { get; init; }
 
-    public static TypeMapping Get<T>() => Cache<T>.Mapping;
+    public IReadOnlyList<SqliteParameter> BuildInsertParameters<T>(T item)
+    {
+        return Properties.Select(x => new SqliteParameter($"${x.Name}", x.TypeConverter.ToParameterValue(x.Accessor.GetValue(item))))
+            .ToList();
+    }
+
+    public string BuildInsertStatement()
+    {
+        return $"INSERT INTO {Name} ({ string.Join(',', Properties.Select(x => x.Name))}) VALUES ({ string.Join(',', Properties.Select(x => $"${x.Name}")) })";
+    }
+
+    public string BuildSelectStatement()
+    {
+        return $"SELECT * FROM {Name}";
+    }
+
+    public string BuildCreateTableStatement()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"CREATE TABLE {Name} (");
+        sb.AppendLine($"   {Name}_pk INTEGER PRIMARY KEY");
+
+        foreach (var p in Properties)
+            sb.AppendLine(@$"   ,{p.Name} { p.TypeConverter.GetSqliteType() }");
+
+        sb.AppendLine(@");");
+        return sb.ToString();
+    }
+
+    public T CreateFromDataRow<T>(SqliteDataReader reader)
+    {
+        var columns = EstablishColumnMapping(reader);
+        var result = Activator.CreateInstance<T>();
+        foreach (var prop in Properties)
+        {
+            if (columns.TryGetValue(prop.Name, out var colIndex))
+                prop.Accessor.SetValue(result, prop.TypeConverter.FromDataReader(reader, colIndex));
+        }
+
+        return result;
+    }
+
+    private Dictionary<string, int> EstablishColumnMapping(SqliteDataReader reader)
+    {
+        if (columnMapping == null)
+        {
+            var schema = reader.GetSchemaTable();
+            columnMapping = schema.Rows.Cast<DataRow>()
+                .Select((row, i) => (row, i))
+                .ToDictionary(x => (string) x.row[SchemaTableColumn.ColumnName], x => x.i);
+        }
+        
+        return columnMapping;
+    }
 
     public interface IPropertyMapping
     {
@@ -61,28 +116,6 @@ public class TypeMapping
         }
     }
 
-    public IReadOnlyList<SqliteParameter> BuildInsertParameters<T>(T item)
-    {
-        return Properties.Select(x => new SqliteParameter($"${x.Name}", x.TypeConverter.ToParameterValue(x.Accessor.GetValue(item))))
-            .ToList();
-    }
-
-    public T CreateFromDataRow<T>(DataTable schema, SqliteDataReader reader)
-    {
-        var columns = schema.Rows.Cast<DataRow>()
-            .Select((x, i) => (x, i))
-            .ToDictionary(x => x.x[SchemaTableColumn.ColumnName], x => x.i);
-
-        var result = Activator.CreateInstance<T>();
-        foreach (var prop in Properties)
-        {
-            if (columns.TryGetValue(prop.Name, out var colIndex))
-                prop.Accessor.SetValue(result, prop.TypeConverter.FromDataReader(reader, colIndex));
-        }
-
-        return result;
-    }
-
     private class DefaultSqliteConverter : ISqliteConverter
     {
         public Type Type { get; init; }
@@ -92,14 +125,14 @@ public class TypeMapping
             switch (Type.GetTypeCode(Type))
             {
                 case TypeCode.Boolean:  return reader.GetBoolean(colIndex);
-                case TypeCode.SByte:    return (SByte) reader.GetByte(colIndex);
+                case TypeCode.SByte:    return (sbyte) reader.GetByte(colIndex);
                 case TypeCode.Byte:     return reader.GetByte(colIndex);
                 case TypeCode.Int16:    return reader.GetInt16(colIndex);
-                case TypeCode.UInt16:   return (UInt16) reader.GetInt16(colIndex);
+                case TypeCode.UInt16:   return (ushort) reader.GetInt16(colIndex);
                 case TypeCode.Int32:    return reader.GetInt32(colIndex);
-                case TypeCode.UInt32:   return (UInt32) reader.GetInt32(colIndex);
+                case TypeCode.UInt32:   return (uint) reader.GetInt32(colIndex);
                 case TypeCode.Int64:    return reader.GetInt64(colIndex);
-                case TypeCode.UInt64:   return (UInt64) reader.GetInt64(colIndex);
+                case TypeCode.UInt64:   return (ulong) reader.GetInt64(colIndex);
                 case TypeCode.Single:   return reader.GetFloat(colIndex);
                 case TypeCode.Double:   return reader.GetDouble(colIndex);
                 case TypeCode.Char:     return reader.GetChar(colIndex);
@@ -159,6 +192,8 @@ public class TypeMapping
             }
         }
     }
+
+    private Dictionary<string, int> columnMapping;
 
     private static readonly Dictionary<Type, ISqliteConverter> sqlTypeConverters = new()
     {

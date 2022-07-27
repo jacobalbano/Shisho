@@ -22,9 +22,6 @@ public class Instance
 
     public ReadingSquad.Config ReadingSquadConfig { get; } = new();
 
-    public IEnumerable<ReadingReport> ReportsThisWeek => Database.Select<ReadingReport>()
-        .Where(x => x.DeadlineKey == NextDeadline.Key);
-
     public IEnumerable<ReadingDeadline> Deadlines => Database.Select<ReadingDeadline>();
 
     public ReadingDeadline? NextDeadline => Deadlines

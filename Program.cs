@@ -42,20 +42,23 @@ public class Program
         new ServiceCollection()
         .DiscoverTaggedSingletons()
         .AddSingleton<DiscordSocketClient>()
-        .AddSingleton(new DiscordSocketConfig { LogGatewayIntentWarnings = false })
+        .AddSingleton(new DiscordSocketConfig { LogGatewayIntentWarnings = false, GatewayIntents = GatewayIntents.AllUnprivileged | GatewayIntents.GuildMembers })
         .AddSingleton<InteractionService>()
         .AddLogging(x => ConfigureLogging(x))
         .BuildServiceProvider();
 
     private static ILoggingBuilder ConfigureLogging(ILoggingBuilder x)
     {
-        return x.AddSerilog(new LoggerConfiguration()
+        return x
+            .SetMinimumLevel(Instance.BotConfig.MinimumLogLevel)
+            .AddSerilog(new LoggerConfiguration()
             .WriteTo.File("logs/shisho.log",
                 rollingInterval: RollingInterval.Day,
                 retainedFileCountLimit: null,
                 shared: true
             )
             .WriteTo.Console()
-            .CreateLogger());
+            .CreateLogger())
+            ;
     }
 }

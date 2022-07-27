@@ -5,6 +5,7 @@ using Shisho.Utility.Persistence.SqliteSupport;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -22,7 +23,6 @@ public class Database : IPersistable
 
     public void LoadPersistentData(string fromDirectory)
     {
-        //conStr = "Data Source=:memory:";
         conStr = $"Data Source={Path.Combine(fromDirectory, $"{dbFilename}.db")}";
     }
 
@@ -33,10 +33,8 @@ public class Database : IPersistable
         EstablishTable(mapping, con);
 
         var command = con.CreateCommand();
-        var parameters = mapping.BuildInsertParameters(item);
-
-        command.CommandText = $"INSERT INTO {mapping.Name} ({ string.Join(',', mapping.Properties.Select(x => x.Name))}) VALUES ({ string.Join(',', parameters.Select(x => x.ParameterName)) })";
-        command.Parameters.AddRange(parameters);
+        command.CommandText = mapping.BuildInsertStatement();
+        command.Parameters.AddRange(mapping.BuildInsertParameters(item));
         command.ExecuteNonQuery();
     }
 
@@ -47,14 +45,12 @@ public class Database : IPersistable
         EstablishTable(mapping, con);
 
         var command = con.CreateCommand();
-        command.CommandText = @$"SELECT * FROM {mapping.Name}";
+        command.CommandText = mapping.BuildSelectStatement();
         using var reader = command.ExecuteReader();
-        if (!reader.HasRows)
-            yield break;
+        if (!reader.HasRows) yield break;
 
-        var schema = reader.GetSchemaTable();
         while (reader.Read())
-            yield return mapping.CreateFromDataRow<T>(schema, reader);
+            yield return mapping.CreateFromDataRow<T>(reader);
     }
 
     private SqliteConnection OpenDb()
@@ -68,7 +64,7 @@ public class Database : IPersistable
     {
     }
 
-    private void EstablishTable(TypeMapping mapping, SqliteConnection con)
+    private static void EstablishTable(TypeMapping mapping, SqliteConnection con)
     {
         using (var findTable = con.CreateCommand())
         {
@@ -80,16 +76,7 @@ public class Database : IPersistable
 
         using (var makeTable = con.CreateCommand())
         {
-            var sb = new StringBuilder();
-            sb.AppendLine(@$"CREATE TABLE {mapping.Name} (");
-            sb.AppendLine(@$"   {mapping.Name}_pk INTEGER PRIMARY KEY");
-
-            foreach (var p in mapping.Properties)
-                sb.AppendLine(@$"   ,{p.Name} { p.TypeConverter.GetSqliteType() }");
-
-            sb.AppendLine(@");");
-
-            makeTable.CommandText = sb.ToString();
+            makeTable.CommandText = mapping.BuildCreateTableStatement();
             makeTable.ExecuteNonQuery();
         }
     }

@@ -46,7 +46,8 @@ public class ReadingSquad
     public async Task<bool> TryApproveUser(Instance instance, IGuildUser user, IUserMessage msg)
     {
         var cfg = instance.ReadingSquadConfig;
-        if (!cfg.IsConfigured() || instance.NextDeadline == null)
+        var nextDeadline = instance.NextDeadline;
+        if (!cfg.IsConfigured() || nextDeadline == null)
         {
             logger.LogError("Can't approve user; configuration missing or no upcoming deadline");
             return false;
@@ -59,16 +60,20 @@ public class ReadingSquad
                 MessageDiscordId = msg.Id,
                 ReportMessageInstant = msg.Timestamp.ToInstant(),
                 UserDiscordId = user.Id,
-                DeadlineKey = instance.NextDeadline.Key,
+                DeadlineKey = nextDeadline.Key,
             };
 
-            if (instance.NextDeadline.DeadlineInstant - report.ReportMessageInstant > Duration.FromDays(7))
+            if (nextDeadline.DeadlineInstant - report.ReportMessageInstant > Duration.FromDays(7))
             {
                 logger.LogWarning($"Can't approve a report from more than one week before the next deadline (message: {msg.Id})");
                 return false;
             }
 
-            if (instance.ReportsThisWeek.Any(x => x.UserDiscordId == report.UserDiscordId))
+            var alreadyReportedThisWeek = instance.Database.Select<ReadingReport>()
+                .Where(x => x.DeadlineKey == nextDeadline.Key)
+                .Any(x => x.UserDiscordId == report.UserDiscordId);
+
+            if (alreadyReportedThisWeek)
             {
                 logger.LogTrace($"A report for user {report.UserDiscordId} has already been approved for the upcoming deadline");
                 return true;
@@ -160,13 +165,13 @@ public class ReadingSquad
 
     public async Task OnOrchestratorTick(Instance instance)
     {
-        var next = instance.NextDeadline;
-        if (next == null)
+        var nextDeadline = instance.NextDeadline;
+        if (nextDeadline == null)
             return;
 
         var now = SystemClock.Instance.GetCurrentInstant();
-        if (now > next.DeadlineInstant)
-            await HandleDeadline(instance, next);
+        if (now > nextDeadline.DeadlineInstant)
+            await HandleDeadline(instance, nextDeadline);
     }
 
     public async Task HandleDeadline(Instance instance, ReadingDeadline deadline)
@@ -177,20 +182,47 @@ public class ReadingSquad
 
         try
         {
+            var reports = instance.Database
+                .Select<ReadingReport>()
+                .ToList();
+
+            var thisWeekReports = reports
+                .Where(x => x.DeadlineKey == deadline.Key)
+                .ToList();
+
+            var mostReports = reports
+                .Where(x => x.DeadlineKey != deadline?.Key)
+                .GroupBy(x => x.DeadlineKey)
+                .Select(x => x.Count())
+                .Max();
+
+            var messages = new List<string> { $"Anyone who has posted a report since the previous deadline will keep the <@&{cfg.RoleDiscordId!.Value}> role for another week.\n" };
+
+            if (thisWeekReports.Count > 0)
+            {
+                messages.Add("New reports this week: ");
+
+                var sb = new StringBuilder();
+                foreach (var report in thisWeekReports)
+                    sb.Append($"<@{report.UserDiscordId}>　");
+
+                messages.Add(sb.ToString());
+
+                if (thisWeekReports.Count > mostReports)
+                    messages.Add($"{thisWeekReports.Count} is our new record for reports in a single week! 🎉 (up from {mostReports})");
+            }
+
             var embed = new EmbedBuilder()
                 .WithColor(new Color(0x0CCDD3))
                 .WithTitle($"It is now <t:{deadline.DeadlineInstant.ToUnixTimeSeconds()}>, and a new week has begun.")
-                .WithDescription(string.Join("\n\n", new[]
-                {
-                    $"Anyone who has posted a report since the previous deadline will keep the <@&{cfg.RoleDiscordId!.Value}> role for another week.",
-                    "Make sure to post another report before the next deadline!",
-                }));
+                .WithFooter("Make sure to post another report before the next deadline!\n")
+                .WithDescription(string.Join("\n", messages));
 
             if (await discord.GetChannelAsync(cfg.ChannelDiscordId!.Value) is not ITextChannel channel)
                 throw new Exception("Failed to get report channel");
 
             await channel.SendMessageAsync(embed: embed.Build());
-            await ClearLapsedUsers(instance, cfg);
+            await ClearLapsedUsers(instance, cfg, thisWeekReports);
             await EstablishNextDeadline(instance, cfg);
         }
         catch (Exception e)
@@ -214,7 +246,7 @@ public class ReadingSquad
             .Build();
     }
 
-    private async Task ClearLapsedUsers(Instance instance, Config cfg)
+    private async Task ClearLapsedUsers(Instance instance, Config cfg, IEnumerable<ReadingReport> reportsThisWeek)
     {
         var guild = discord.GetGuild(instance.Id);
         var role = guild.GetRole(cfg.RoleDiscordId!.Value);
@@ -224,9 +256,11 @@ public class ReadingSquad
             return;
         }
 
-        var approvedMembers = instance.ReportsThisWeek
+        var approvedMembers = reportsThisWeek
             .Select(x => x.UserDiscordId)
             .ToHashSet();
+
+        await guild.DownloadUsersAsync();
 
         foreach (var member in role.Members.Where(x => !approvedMembers.Contains(x.Id)))
         {

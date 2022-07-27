@@ -119,11 +119,8 @@ public class ReadingSquadModule : InteractionModuleBase<SocketInteractionContext
             {
                 if (nextDeadline != null && nextDeadline.DeadlineInstant - item.Deadline.DeadlineInstant < Duration.FromDays(7))
                 {
-                    foreach (var report in item.Reports)
-                    {
-                        instance.Database.Insert(report with { DeadlineKey = nextDeadline.Key });
-                        totalCount++;
-                    }
+                    await ReplyAsync($"Skipping import for {item.Reports.Count} reports that would count towards the upcoming deadline; please make sure to approve them manually");
+                    continue;
                 }
                 else
                 {

@@ -15,8 +15,7 @@ namespace Shisho.Models
 
         public ulong MessageDiscordId { get; init; }
 
-        [JsonConverter(typeof(NodaInstantJsonConverter))]
-        [SqliteConverter(typeof(NodaInstantSqliteConverter))]
+        [JsonConverter(typeof(NodaInstantJsonConverter)), SqliteConverter(typeof(NodaInstantSqliteConverter))]
         public Instant ReportMessageInstant { get; init; }
 
         public Guid DeadlineKey { get; init; }

@@ -1,12 +1,18 @@
-﻿using Shisho.Utility;
+﻿using Microsoft.Extensions.Logging;
+using Shisho.Utility;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Shisho;
 
 public class ConfigFile
 {
     public string Token { get; init; } = "__CUSTOMIZE__";
+
     public int TickMilliseconds { get; init; } = 1000;
+
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public LogLevel MinimumLogLevel { get; init; } = LogLevel.Information;
     
     public static ConfigFile Prepare()
     {

@@ -11,7 +11,6 @@ namespace Shisho.Models;
 
 public record class ReadingDeadline : ModelBase
 {
-    [JsonConverter(typeof(NodaInstantJsonConverter))]
-    [SqliteConverter(typeof(NodaInstantSqliteConverter))]
+    [JsonConverter(typeof(NodaInstantJsonConverter)), SqliteConverter(typeof(NodaInstantSqliteConverter))]
     public Instant DeadlineInstant { get; init; }
 }
