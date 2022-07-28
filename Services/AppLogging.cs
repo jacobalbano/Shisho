@@ -30,7 +30,7 @@ public class AppLogging
         };
     }
 
-    private static LogLevel GetLogLevel(LogMessage msg)
+    public static LogLevel GetLogLevel(LogMessage msg)
     {
         return msg.Severity switch
         {

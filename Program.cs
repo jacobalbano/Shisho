@@ -6,6 +6,7 @@ using Serilog;
 using Microsoft.Extensions.Logging;
 using Shisho.Utility;
 using Shisho.Modules;
+using Serilog.Events;
 
 namespace Shisho;
 
@@ -49,9 +50,20 @@ public class Program
 
     private static ILoggingBuilder ConfigureLogging(ILoggingBuilder x)
     {
+        var loglevel = Instance.BotConfig.MinimumLogLevel switch
+        {
+            LogLevel.Trace => LogEventLevel.Verbose,
+            LogLevel.Debug => LogEventLevel.Debug,
+            LogLevel.Information => LogEventLevel.Information,
+            LogLevel.Warning => LogEventLevel.Warning,
+            LogLevel.Error => LogEventLevel.Error,
+            LogLevel.Critical => LogEventLevel.Fatal,
+            _ => LogEventLevel.Information,
+        };
+
         return x
-            .SetMinimumLevel(Instance.BotConfig.MinimumLogLevel)
             .AddSerilog(new LoggerConfiguration()
+            .MinimumLevel.Is(loglevel)
             .WriteTo.File("logs/shisho.log",
                 rollingInterval: RollingInterval.Day,
                 retainedFileCountLimit: null,

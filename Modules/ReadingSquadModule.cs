@@ -113,7 +113,6 @@ public class ReadingSquadModule : InteractionModuleBase<SocketInteractionContext
             await ReplyAsync($"Export completed; beginning import");
             var nextDeadline = instance.NextDeadline;
 
-
             int totalCount = 0;
             foreach (var item in export.Items)
             {
@@ -141,6 +140,16 @@ public class ReadingSquadModule : InteractionModuleBase<SocketInteractionContext
             await ReplyAsync($"Error exporting: { e.Message }");
             return;
         }
+    }
+
+    [SlashCommand("set-enabled", "Enable or disable report approval and deadline polling")]
+    public async Task SetEnabled(bool enabled)
+    {
+        var instance = Context.GetInstance();
+        var cfg = instance.ReadingSquadConfig;
+        cfg.Enabled = enabled;
+
+        await RespondAsync(enabled ? "Enabled" : "Disabled");
     }
 
     private async Task Discord_ReactionAdded(Cacheable<IUserMessage, ulong> message, Cacheable<IMessageChannel, ulong> channel, SocketReaction reaction)

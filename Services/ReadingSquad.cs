@@ -32,6 +32,8 @@ public class ReadingSquad
         
         public string? SchedulingRelativeToTz { get => Get<string>(); set => Set(value); }
 
+        public bool Enabled { get => Get<bool>(); set => Set(value); }
+
         public bool IsConfigured()
         {
             return
@@ -46,6 +48,12 @@ public class ReadingSquad
     public async Task<bool> TryApproveUser(Instance instance, IGuildUser user, IUserMessage msg)
     {
         var cfg = instance.ReadingSquadConfig;
+        if (!cfg.Enabled)
+        {
+            logger.LogWarning("Report approval system is not enabled");
+            return false;
+        }
+
         var nextDeadline = instance.NextDeadline;
         if (!cfg.IsConfigured() || nextDeadline == null)
         {
@@ -165,6 +173,9 @@ public class ReadingSquad
 
     public async Task OnOrchestratorTick(Instance instance)
     {
+        if (!instance.ReadingSquadConfig.Enabled)
+            return;
+
         var nextDeadline = instance.NextDeadline;
         if (nextDeadline == null)
             return;
@@ -239,9 +250,10 @@ public class ReadingSquad
             .WithTitle("Reading squad configuration")
             .AddField("Channel", $"<#{cfg.ChannelDiscordId}>")
             .AddField("Role", $"<@&{cfg.RoleDiscordId}>")
-            .AddField("Time", $"{cfg.TimeOfDay}")
-            .AddField("Day", $"{cfg.DayOfWeek}")
-            .AddField("Relative to TZ", $"{cfg.SchedulingRelativeToTz}")
+            .AddField("Day", $"{cfg.DayOfWeek}", inline: true)
+            .AddField("Time", $"{cfg.TimeOfDay}", inline: true)
+            .AddField("TZ", $"{cfg.SchedulingRelativeToTz}", inline: true)
+            .AddField("Enabled", $"{cfg.Enabled}")
             .WithDescription($"Next deadline is <t:{GenerateDeadlineInstants(cfg).First().ToUnixTimeSeconds()}>")
             .Build();
     }
