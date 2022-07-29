@@ -93,7 +93,7 @@ public class ReadingSquad
 
                 instance.Database.Insert(report);
                 await user.AddRoleAsync(cfg.RoleDiscordId!.Value, new RequestOptions { AuditLogReason = "Reading report approved" });
-                logger.LogInformation($"Approved report (user: {user.Id}, message: {msg.Id}");
+                logger.LogInformation($"Approved report (user: {user.Id}, message: {msg.Id})");
                 return true;
             }
             catch (Exception e)
