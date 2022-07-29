@@ -78,12 +78,12 @@ public class CommandHandler
         _discord.Ready -= Ready;
     }
 
-    private async Task InteractionCreated(SocketInteraction arg)
+    private Task InteractionCreated(SocketInteraction arg)
     {
         try
         {
             var ctx = new SocketInteractionContext(_discord, arg);
-            var result = await _commands.ExecuteCommandAsync(ctx, _services);
+            return _commands.ExecuteCommandAsync(ctx, _services);
         }
         catch (Exception)
         {

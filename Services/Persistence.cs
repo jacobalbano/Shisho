@@ -16,11 +16,8 @@ public class Persistence
         orchestrator.OnTick += Orchestrator_OnTick;
     }
 
-    private Task Orchestrator_OnTick(object? sender, EventArgs e)
+    private Task Orchestrator_OnTick(object? sender, EventArgs e) => Task.Run(() =>
     {
-        return Task.Run(() =>
-        {
-            Instance.PersistAll();
-        });
-    }
+        Instance.PersistAll();
+    });
 }

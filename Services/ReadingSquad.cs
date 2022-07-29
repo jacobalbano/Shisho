@@ -45,61 +45,70 @@ public class ReadingSquad
         }
     }
 
-    public async Task<bool> TryApproveUser(Instance instance, IGuildUser user, IUserMessage msg)
+    private readonly SemaphoreSlim approveUserSemaphore = new(1, 1);
+    public Task<bool> TryApproveUser(Instance instance, IGuildUser user, IUserMessage msg) => Task.Run(async () =>
     {
-        var cfg = instance.ReadingSquadConfig;
-        if (!cfg.Enabled)
-        {
-            logger.LogWarning("Report approval system is not enabled");
-            return false;
-        }
-
-        var nextDeadline = instance.NextDeadline;
-        if (!cfg.IsConfigured() || nextDeadline == null)
-        {
-            logger.LogError("Can't approve user; configuration missing or no upcoming deadline");
-            return false;
-        }
-
         try
         {
-            var report = new ReadingReport
+            await approveUserSemaphore.WaitAsync();
+            var cfg = instance.ReadingSquadConfig;
+            if (!cfg.Enabled)
             {
-                MessageDiscordId = msg.Id,
-                ReportMessageInstant = msg.Timestamp.ToInstant(),
-                UserDiscordId = user.Id,
-                DeadlineKey = nextDeadline.Key,
-            };
-
-            if (nextDeadline.DeadlineInstant - report.ReportMessageInstant > Duration.FromDays(7))
-            {
-                logger.LogWarning($"Can't approve a report from more than one week before the next deadline (message: {msg.Id})");
+                logger.LogWarning("Report approval system is not enabled");
                 return false;
             }
 
-            var alreadyReportedThisWeek = instance.Database.Select<ReadingReport>()
-                .Where(x => x.DeadlineKey == nextDeadline.Key)
-                .Any(x => x.UserDiscordId == report.UserDiscordId);
-
-            if (alreadyReportedThisWeek)
+            var nextDeadline = instance.NextDeadline;
+            if (!cfg.IsConfigured() || nextDeadline == null)
             {
-                logger.LogTrace($"A report for user {report.UserDiscordId} has already been approved for the upcoming deadline");
-                return true;
+                logger.LogError("Can't approve user; configuration missing or no upcoming deadline");
+                return false;
             }
 
-            instance.Database.Insert(report);
-            await user.AddRoleAsync(cfg.RoleDiscordId!.Value, new RequestOptions { AuditLogReason = "Reading report approved" });
-            logger.LogInformation($"Approved report (user: {user.Id}, message: {msg.Id}");
-            return true;
-        }
-        catch (Exception e)
-        {
-            logger.LogError("Failed to approve user", e);
-            return false;
-        }
-    }
+            try
+            {
+                var report = new ReadingReport
+                {
+                    MessageDiscordId = msg.Id,
+                    ReportMessageInstant = msg.Timestamp.ToInstant(),
+                    UserDiscordId = user.Id,
+                    DeadlineKey = nextDeadline.Key,
+                };
 
-    public async Task<DataExport> ExportHistory(Config cfg)
+                if (nextDeadline.DeadlineInstant - report.ReportMessageInstant > Duration.FromDays(7))
+                {
+                    logger.LogWarning($"Can't approve a report from more than one week before the next deadline (message: {msg.Id})");
+                    return false;
+                }
+
+                var alreadyReportedThisWeek = instance.Database.Select<ReadingReport>()
+                    .Where(x => x.DeadlineKey == nextDeadline.Key)
+                    .Any(x => x.UserDiscordId == report.UserDiscordId);
+
+                if (alreadyReportedThisWeek)
+                {
+                    logger.LogTrace($"A report for user {report.UserDiscordId} has already been approved for the upcoming deadline");
+                    return true;
+                }
+
+                instance.Database.Insert(report);
+                await user.AddRoleAsync(cfg.RoleDiscordId!.Value, new RequestOptions { AuditLogReason = "Reading report approved" });
+                logger.LogInformation($"Approved report (user: {user.Id}, message: {msg.Id}");
+                return true;
+            }
+            catch (Exception e)
+            {
+                logger.LogError("Failed to approve user", e);
+                return false;
+            }
+        }
+        finally
+        {
+            approveUserSemaphore.Release();
+        }
+    });
+
+    public Task<DataExport> ExportHistory(Config cfg) => Task.Run(async () =>
     {
         if (await discord.GetChannelAsync(cfg.ChannelDiscordId!.Value) is not ITextChannel reportChannel)
             throw new Exception("Error accessing reports channel; export failed");
@@ -169,7 +178,7 @@ public class ReadingSquad
         next();
 
         return new DataExport { Items = items };
-    }
+    });
 
     public async Task OnOrchestratorTick(Instance instance)
     {
@@ -185,7 +194,7 @@ public class ReadingSquad
             await HandleDeadline(instance, nextDeadline);
     }
 
-    public async Task HandleDeadline(Instance instance, ReadingDeadline deadline)
+    public Task HandleDeadline(Instance instance, ReadingDeadline deadline) => Task.Run(async () =>
     {
         var cfg = instance.ReadingSquadConfig;
         if (!cfg.IsConfigured())
@@ -241,7 +250,7 @@ public class ReadingSquad
             logger.LogError("Error handling deadline timer", e);
             throw;
         }
-    }
+    });
 
     public Embed GenerateConfigEmbed(Config cfg)
     {
@@ -276,7 +285,7 @@ public class ReadingSquad
 
         foreach (var member in role.Members.Where(x => !approvedMembers.Contains(x.Id)))
         {
-            logger.LogInformation($"Report expired (user: {member.Id}");
+            logger.LogInformation($"Report expired (user: {member.Id})");
 
             try
             {

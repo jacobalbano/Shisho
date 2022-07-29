@@ -9,6 +9,9 @@ using Discord.Interactions.Builders;
 using Discord.WebSocket;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
+using System.Diagnostics;
+using Shisho.Utility;
+using System.Reflection;
 
 namespace Shisho.Modules;
 
@@ -52,7 +55,7 @@ public class ReadingSquadModule : InteractionModuleBase<SocketInteractionContext
         await RespondAsync(embed: readingSquad.GenerateConfigEmbed(cfg));
     }
 
-    [SlashCommand("simulate-reset", "Clear roles and post the reset message as if the deadline had passed")]
+    [SlashCommand("simulate-reset", "Clear roles and post the reset message as if the deadline had passed", runMode: RunMode.Async)]
     public async Task SimulateReset()
     {
         var instance = Context.GetInstance();
@@ -67,7 +70,7 @@ public class ReadingSquadModule : InteractionModuleBase<SocketInteractionContext
         await readingSquad.HandleDeadline(instance, instance.NextDeadline!);
     }
 
-    [SlashCommand("export-history", "Export a file containing all report messages to date")]
+    [SlashCommand("export-history", "Export a file containing all report messages to date", runMode: RunMode.Async)]
     public async Task ExportHistory()
     {
         var instance = Context.GetInstance();
@@ -94,7 +97,7 @@ public class ReadingSquadModule : InteractionModuleBase<SocketInteractionContext
         }
     }
 
-    [SlashCommand("import-history", "Insert all historical messages, assigning them to deadlines according to the current configuration")]
+    [SlashCommand("import-history", "Insert all historical messages, assigning them to deadlines according to the current configuration", runMode: RunMode.Async)]
     public async Task ImportHistory()
     {
         var instance = Context.GetInstance();
@@ -123,7 +126,6 @@ public class ReadingSquadModule : InteractionModuleBase<SocketInteractionContext
                 }
                 else
                 {
-
                     instance.Database.Insert(item.Deadline);
                     foreach (var report in item.Reports)
                     {
@@ -152,8 +154,54 @@ public class ReadingSquadModule : InteractionModuleBase<SocketInteractionContext
         await RespondAsync(enabled ? "Enabled" : "Disabled");
     }
 
-    private async Task Discord_ReactionAdded(Cacheable<IUserMessage, ulong> message, Cacheable<IMessageChannel, ulong> channel, SocketReaction reaction)
+    [SlashCommand("run-diagnostics", "Run various diagnostics to see how the bot can be expected to perform", runMode: RunMode.Async)]
+    public async Task RunDiagnostics()
     {
+        await DeferAsync();
+
+        var builder = new EmbedBuilder();
+        var timer = Stopwatch.StartNew();
+        await Context.Guild.DownloadUsersAsync();
+        timer.Stop();
+
+        var proc = Process.GetCurrentProcess();
+        var nativeMem = proc.PrivateMemorySize64;
+        var gcMem = GC.GetTotalMemory(forceFullCollection: false);
+        static string format(long l) => $"{BytesFormatter.ToSize(l, BytesFormatter.SizeUnits.MB)}mb";
+
+        var gitHash = Assembly
+            .GetEntryAssembly()?
+            .GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(attr => attr.Key == "GitHash")?.Value;
+
+        builder.AddField("Time to download users", Duration.FromMilliseconds(timer.ElapsedMilliseconds).ToString());
+        builder.AddField("Native memory usage", format(nativeMem), inline: true);
+        builder.AddField("GC memory usage", format(gcMem), inline: true);
+        builder.AddField("Total memory usage", format(nativeMem + gcMem));
+
+        if (gitHash != null)
+            builder.AddField("Commit", gitHash);
+
+        builder.WithFooter($"Bot uptime: {Duration.FromTimeSpan(DateTime.UtcNow - proc.StartTime.ToUniversalTime())}");
+
+        await FollowupAsync(embed: builder.Build());
+    }
+
+#if DEBUG
+    [SlashCommand("think", "just think for a while", runMode: RunMode.Async)]
+    public async Task Think()
+    {
+        await DeferAsync();
+        await Task.Delay(30_000);
+        await FollowupAsync("Done thinking");
+    }
+#endif
+
+    private Task Discord_ReactionAdded(Cacheable<IUserMessage, ulong> message, Cacheable<IMessageChannel, ulong> channel, SocketReaction reaction) => Task.Run(async () =>
+    {
+        if (reaction.User.GetValueOrDefault() is IGuildUser bot && bot.IsBot)
+            return;
+
         if (reaction.Channel is not ITextChannel tc)
             return;
 
@@ -181,7 +229,7 @@ public class ReadingSquadModule : InteractionModuleBase<SocketInteractionContext
             //  either we failed to get the message or the author blocked the bot
             //  in both cases, nothing more to do here
         }
-    }
+    });
 
     public ReadingSquadModule(DiscordSocketClient discord, Orchestrator orchestrator, ReadingSquad readingSquad, ILogger<ReadingSquadModule> logger)
     {
