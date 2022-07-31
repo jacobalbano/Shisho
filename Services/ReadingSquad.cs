@@ -75,7 +75,7 @@ public class ReadingSquad
                     DeadlineKey = nextDeadline.Key,
                 };
 
-                if (nextDeadline.DeadlineInstant - report.ReportMessageInstant > Duration.FromDays(7))
+                if (nextDeadline.DeadlineInstant - report.ReportMessageInstant > approvalGracePeriod)
                 {
                     logger.LogWarning($"Can't approve a report from more than one week before the next deadline (message: {msg.Id})");
                     return false;
@@ -232,18 +232,35 @@ public class ReadingSquad
                     messages.Add($"{thisWeekReports.Count} is our new record for reports in a single week! 🎉 (up from {mostReports})");
             }
 
+            var next = GenerateDeadlineInstants(cfg)
+                .First();
+
             var embed = new EmbedBuilder()
                 .WithColor(new Color(0x0CCDD3))
                 .WithTitle($"It is now <t:{deadline.DeadlineInstant.ToUnixTimeSeconds()}>, and a new week has begun.")
-                .WithFooter("Make sure to post another report before the next deadline!\n")
+                .AddField("Next deadline", $"<t:{next.ToUnixTimeSeconds()}:R>")
+                .WithFooter("Make sure to post another report before the next deadline!")
                 .WithDescription(string.Join("\n", messages));
 
             if (await discord.GetChannelAsync(cfg.ChannelDiscordId!.Value) is not ITextChannel channel)
                 throw new Exception("Failed to get report channel");
 
-            await channel.SendMessageAsync(embed: embed.Build());
+            var deadlineMessage = await channel.SendMessageAsync(embed: embed.Build());
             await ClearLapsedUsers(instance, cfg, thisWeekReports);
-            await EstablishNextDeadline(instance, cfg);
+            var nextDeadline = await EstablishNextDeadline(instance, cfg);
+
+            var lastPin = instance.Database.Select<PinnedMessage>()
+                .FirstOrDefault(x => x.DeadlineKey == deadline.Key);
+
+            if (lastPin != null)
+            {
+                var lastPinMsg = await channel.GetMessageAsync(lastPin.MessageDiscordId);
+                if (lastPinMsg is IUserMessage usrMsg && lastPinMsg.IsPinned)
+                    await usrMsg.UnpinAsync();
+            }
+
+            await deadlineMessage.PinAsync();
+            instance.Database.Insert(new PinnedMessage { DeadlineKey = nextDeadline.Key, MessageDiscordId = deadlineMessage.Id });
         }
         catch (Exception e)
         {
@@ -298,12 +315,14 @@ public class ReadingSquad
         }
     }
 
-    public async Task EstablishNextDeadline(Instance instance, Config cfg)
+    public async Task<ReadingDeadline> EstablishNextDeadline(Instance instance, Config cfg)
     {
         var next = GenerateDeadlineInstants(cfg)
             .First();
 
-        instance.Database.Insert(new ReadingDeadline { DeadlineInstant = next });
+        var nextDeadline = new ReadingDeadline { DeadlineInstant = next };
+        instance.Database.Insert(nextDeadline);
+        return nextDeadline;
     }
 
     private IEnumerable<Instant> GenerateDeadlineInstants(Config cfg, LocalDate? start = null)
@@ -341,4 +360,5 @@ public class ReadingSquad
     private readonly TimezoneProvider timezoneProvider;
     private readonly ILogger<ReadingSquad> logger;
     private readonly Color coolBlue = new(0x0CCDD3);
+    private Duration approvalGracePeriod = Duration.FromDays(7) + Duration.FromMinutes(10);
 }
