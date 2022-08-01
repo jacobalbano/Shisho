@@ -222,8 +222,10 @@ public class ReadingSquad
 
             if (thisWeekReports.Count > 0)
             {
-                sb.AppendLine($"**We had {thisWeekReports.Count} report{(thisWeekReports.Count == 1 ? "" : "s")} this week:**");
-                sb.AppendLine(string.Join("・", thisWeekReports.Select(x => $"<@{x.UserDiscordId}>")));
+                sb.AppendLine($"**We had {thisWeekReports.Count} report{(thisWeekReports.Count == 1 ? "" : "s")} this week**");
+                
+                foreach (var x in thisWeekReports)
+                    sb.AppendLine($"・ <@{x.UserDiscordId}>");
 
                 if (thisWeekReports.Count > mostReports)
                 {
