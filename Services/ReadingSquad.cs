@@ -216,20 +216,20 @@ public class ReadingSquad
                 .Select(x => x.Count())
                 .Max();
 
-            var messages = new List<string> { $"Anyone who has posted a report since the previous deadline will keep the <@&{cfg.RoleDiscordId!.Value}> role for another week.\n" };
+            var sb = new StringBuilder();
+            sb.AppendLine($"Anyone who has posted a report since the previous deadline will keep the <@&{cfg.RoleDiscordId!.Value}> role for another week.");
+            sb.AppendLine();
 
             if (thisWeekReports.Count > 0)
             {
-                messages.Add("New reports this week: ");
-
-                var sb = new StringBuilder();
-                foreach (var report in thisWeekReports)
-                    sb.Append($"<@{report.UserDiscordId}>　");
-
-                messages.Add(sb.ToString());
+                sb.AppendLine($"**We had {thisWeekReports.Count} report{(thisWeekReports.Count == 1 ? "" : "s")} this week:**");
+                sb.AppendLine(string.Join("・", thisWeekReports.Select(x => $"<@{x.UserDiscordId}>")));
 
                 if (thisWeekReports.Count > mostReports)
-                    messages.Add($"{thisWeekReports.Count} is our new record for reports in a single week! 🎉 (up from {mostReports})");
+                {
+                    sb.AppendLine();
+                    sb.AppendLine($"{thisWeekReports.Count} is our new record for reports in a single week! 🎉 (up from {mostReports})");
+                }
             }
 
             var next = GenerateDeadlineInstants(cfg)
@@ -240,13 +240,12 @@ public class ReadingSquad
                 .WithTitle($"It is now <t:{deadline.DeadlineInstant.ToUnixTimeSeconds()}>, and a new week has begun.")
                 .AddField("Next deadline", $"<t:{next.ToUnixTimeSeconds()}:R>")
                 .WithFooter("Make sure to post another report before the next deadline!")
-                .WithDescription(string.Join("\n", messages));
+                .WithDescription(sb.ToString());
 
             if (await discord.GetChannelAsync(cfg.ChannelDiscordId!.Value) is not ITextChannel channel)
                 throw new Exception("Failed to get report channel");
 
             var deadlineMessage = await channel.SendMessageAsync(embed: embed.Build());
-            await ClearLapsedUsers(instance, cfg, thisWeekReports);
             var nextDeadline = await EstablishNextDeadline(instance, cfg);
 
             var lastPin = instance.Database.Select<PinnedMessage>()
@@ -261,6 +260,8 @@ public class ReadingSquad
 
             await deadlineMessage.PinAsync();
             instance.Database.Insert(new PinnedMessage { DeadlineKey = nextDeadline.Key, MessageDiscordId = deadlineMessage.Id });
+
+            await ClearLapsedUsers(instance, cfg, thisWeekReports);
         }
         catch (Exception e)
         {
@@ -360,5 +361,5 @@ public class ReadingSquad
     private readonly TimezoneProvider timezoneProvider;
     private readonly ILogger<ReadingSquad> logger;
     private readonly Color coolBlue = new(0x0CCDD3);
-    private Duration approvalGracePeriod = Duration.FromDays(7) + Duration.FromMinutes(10);
+    private Duration approvalGracePeriod = Duration.FromDays(7) + Duration.FromMinutes(1);
 }
