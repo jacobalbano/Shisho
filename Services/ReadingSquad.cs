@@ -108,6 +108,74 @@ public class ReadingSquad
         }
     });
 
+    public Instant GetRoleExpirationInstant(Config cfg, ReadingDeadline latestReportDeadline)
+    {
+        var tz = timezoneProvider.Tzdb[cfg.SchedulingRelativeToTz!];
+        var start = latestReportDeadline.DeadlineInstant.InZone(tz).LocalDateTime.Date;
+        return GenerateDeadlineInstants(cfg, start)
+            .Skip(1)
+            .First();
+    }
+
+
+    public UserParticipation GetUserParticipationStats(Instance instance, IUser user)
+    {
+        var reports = instance.Database
+            .Select<ReadingReport>()
+            .Where(x => x.UserDiscordId == user.Id)
+            .ToList();
+
+        if (!reports.Any())
+            return new UserParticipation();
+
+        var firstReport = reports.First();
+        var allDeadlines = instance.Deadlines.ToList();
+        var deadlines = allDeadlines
+            .SkipWhile(x => x.Key != reports.First().DeadlineKey)
+            .ToList();
+
+        var joined = (
+            from deadline in deadlines
+            join report in reports on deadline.Key equals report.DeadlineKey into ps
+            from report in ps.DefaultIfEmpty()
+            orderby deadline.DeadlineInstant
+            select (deadline, report)
+        ).ToList();
+
+        // don't include this week in the stats if they haven't reported yet
+        if (joined.Last().report == null)
+            joined.Remove(joined.Last());
+
+        int bestStreak = 0, currentStreak = 0, reportCount = 0;
+
+        foreach (var (deadline, report) in joined)
+        {
+            if (report == null)
+                currentStreak = 0;
+            else
+            {
+                reportCount++;
+                if (++currentStreak > bestStreak)
+                    bestStreak = currentStreak;
+            }
+        }
+
+        var stats = new UserParticipation
+        {
+            FirstReport = firstReport,
+            LatestReport = joined.Last().report,
+
+            BestStreak = bestStreak,
+            CurrentStreak = currentStreak,
+            TotalReports = reports.Count,
+
+            Consistency = (int)((float)reportCount / joined.Count * 100),
+            RoleExpires = GetRoleExpirationInstant(instance.ReadingSquadConfig, joined.Last().deadline)
+        };
+
+        return stats;
+    }
+
     public Task<DataExport> ExportHistory(Config cfg) => Task.Run(async () =>
     {
         if (await discord.GetChannelAsync(cfg.ChannelDiscordId!.Value) is not ITextChannel reportChannel)
@@ -328,7 +396,7 @@ public class ReadingSquad
         return nextDeadline;
     }
 
-    private IEnumerable<Instant> GenerateDeadlineInstants(Config cfg, LocalDate? start = null)
+    public IEnumerable<Instant> GenerateDeadlineInstants(Config cfg, LocalDate? start = null)
     {
         var tz = timezoneProvider.Tzdb[cfg.SchedulingRelativeToTz!];
         var clock = SystemClock.Instance.InZone(tz);
