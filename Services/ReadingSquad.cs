@@ -128,7 +128,6 @@ public class ReadingSquad
         if (!reports.Any())
             return new UserParticipation();
 
-        var firstReport = reports.First();
         var allDeadlines = instance.Deadlines.ToList();
         var deadlines = allDeadlines
             .SkipWhile(x => x.Key != reports.First().DeadlineKey)
@@ -160,6 +159,12 @@ public class ReadingSquad
             }
         }
 
+        var firstReport = reports.First();
+        var latestReportDeadline = joined
+            .Where(x => x.report != null)
+            .Select(x => x.deadline)
+            .Last();
+
         var stats = new UserParticipation
         {
             FirstReport = firstReport,
@@ -170,7 +175,7 @@ public class ReadingSquad
             TotalReports = reports.Count,
 
             Consistency = (int)((float)reportCount / joined.Count * 100),
-            RoleExpires = GetRoleExpirationInstant(instance.ReadingSquadConfig, joined.Last().deadline)
+            RoleExpires = GetRoleExpirationInstant(instance.ReadingSquadConfig, latestReportDeadline)
         };
 
         return stats;
