@@ -58,37 +58,47 @@ public class ReadingSquad
                 return false;
             }
 
-            var nextDeadline = instance.NextDeadline;
-            if (!cfg.IsConfigured() || nextDeadline == null)
+            if (!cfg.IsConfigured())
             {
-                logger.LogError("Can't approve user; configuration missing or no upcoming deadline");
+                logger.LogError("Can't approve user; configuration missing");
                 return false;
             }
 
             try
             {
+                var targetDeadline = instance.Database.Select<ReadingDeadline>()
+                    .Where(x => x.DeadlineInstant > msg.Timestamp.ToInstant())
+                    .OrderBy(x => x.DeadlineInstant)
+                    .FirstOrDefault();
+
+                if (targetDeadline == null)
+                {
+                    logger.LogError("Can't approve user; unable to find suitable deadline for report");
+                    return false;
+                }
+
                 var report = new ReadingReport
                 {
                     MessageDiscordId = msg.Id,
                     ReportMessageInstant = msg.Timestamp.ToInstant(),
                     UserDiscordId = user.Id,
-                    DeadlineKey = nextDeadline.Key,
+                    DeadlineKey = targetDeadline.Key,
                 };
 
-                if (nextDeadline.DeadlineInstant - report.ReportMessageInstant > approvalGracePeriod)
+                if (targetDeadline.DeadlineInstant - report.ReportMessageInstant > approvalGracePeriod)
                 {
-                    logger.LogWarning($"Can't approve a report from more than one week before the next deadline (message: {msg.Id})");
+                    logger.LogWarning($"Can't approve a report from more than one week before the deadline (message: {msg.Id})");
                     return false;
                 }
 
                 var alreadyReportedThisWeek = instance.Database.Select<ReadingReport>()
-                    .Where(x => x.DeadlineKey == nextDeadline.Key)
+                    .Where(x => x.DeadlineKey == targetDeadline.Key)
                     .Any(x => x.UserDiscordId == report.UserDiscordId);
 
                 if (alreadyReportedThisWeek)
                 {
-                    logger.LogTrace($"A report for user {report.UserDiscordId} has already been approved for the upcoming deadline");
-                    return true;
+                    logger.LogTrace($"A report for user {report.UserDiscordId} has already been approved for the relevant deadline");
+                    return false;
                 }
 
                 instance.Database.Insert(report);
